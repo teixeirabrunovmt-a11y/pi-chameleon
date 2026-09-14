@@ -1,0 +1,1 @@
+{"compaction":{"enabled":true,"keepRecentTokens":20000,"modelOverrides":{"anthropic/claude-sonnet-4-6":{"reserveTokens":300000}},"reserveTokens":60000},"defaultTools":["read","powershell","edit","write","grep","find","ls"],"enableSkillCommands":true,"theme":"dark"}
