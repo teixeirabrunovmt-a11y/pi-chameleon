@@ -9,19 +9,24 @@ Based on [amosblomqvist/pi-config](https://github.com/amosblomqvist/pi-config), 
 ```text
 common/                    shared by all OSes
   extensions/              custom-header, ask-user-question, prompt-snippets,
-                           web-fetch, browser, mini-hooks, handoff-compact, ow-worktree
-  skills/                  analyze-sessions, web-debug, youtube-transcript, pdf-reader
+                           web-fetch, browser, mini-hooks, handoff-compact,
+                           ow-worktree, goal-loop
+  skills/                  analyze-sessions, web-debug, youtube-transcript,
+                           pdf-reader, goal-loop
 windows/                   Windows profile (PowerShell)
   extensions/ps-guard.ts   destructive-command guard for powershell/bash tools
-  settings.json            defaultTools with powershell
+  settings.json            defaultTools with powershell + Ctrl+G in Orca editor
   AGENTS.md                Windows + PowerShell + PT-BR (3 lines)
 unix/                      Linux/macOS profile (bash)
   extensions/bash-guard/   destructive-command guard (from pi-config, needs shell-quote)
   settings.json            defaultTools with bash
   AGENTS.md                Linux/macOS + bash, no Windows specifics
 scripts/
-  install.ps1              Windows installer (copies common + windows)
+  install.ps1              Windows installer (copies common + windows + bin wrapper)
   install.sh               Linux/macOS installer (copies common + unix)
+  orca-edit-wait.ps1       Ctrl+G wrapper: opens Pi prompt in Orca editor, waits for save
+docs/
+  MANUAL.md                slash commands + keybinds cheat sheet (this setup)
 ```
 
 ## What each piece does
@@ -36,6 +41,8 @@ scripts/
 | `mini-hooks` | truncates tool outputs >8000 chars (tail + full in temp) + 1-line live Orca context | none |
 | `handoff-compact` | at 70% context on 2 straight terminal turns: native compaction + handoff file in temp dir + opens follow-up Orca terminal. Once per session (`/handoff-off` disables) | Orca CLI (optional) |
 | `ow-worktree` | `/ow name` creates Orca worktree + terminal running pi | Orca CLI |
+| `goal-loop` | `/goal <text>` standing goal, one step per turn (Ralph loop) | none |
+| `goal-loop` skill | protocol doc for `/goal` (`/goal draft|status|clear`) | needs `goal-loop` extension |
 | `ps-guard` (windows) | blocks `Remove-Item -Recurse C:\`, `Format-Volume`, `irm|iex`, `push --force`, `reset --hard` | none |
 | `bash-guard` (unix) | parses bash via `shell-quote`, prompts on `rm -rf`, `sudo`, `curl|sh`, `git push --force` | `npm install` (`shell-quote`) |
 | `analyze-sessions` | `cost.py/prompts.py/search.py/show_session.py` over `~/.pi/agent/sessions/*.jsonl` | `python3` stdlib (Windows: `python`) |
@@ -95,3 +102,8 @@ Do not clone over `~/.pi/agent` — copy pieces so you never wipe existing confi
 
 * `settings.json` sets `defaultTools` per OS, `compaction.reserveTokens: 60000` (~70% trigger on 200k models) with a `modelOverrides` example (`reserveTokens: 300000` ≈ 70% on 1M). Adjust model IDs to your exact `provider/model`.
 * `AGENTS.md` files are intentionally 3 lines. Stack instructions belong in each project's `AGENTS.md`.
+* `externalEditor` (windows) points at `~/.pi/agent/bin/orca-edit-wait.ps1`, so `Ctrl+G` opens the prompt in the Orca editor and returns on save (~3s after stable, cancels with no edit or `Ctrl+C`, falls back to Notepad outside a worktree).
+
+## Full cheat sheet
+
+See [docs/MANUAL.md](docs/MANUAL.md) for all slash commands and keybinds.
