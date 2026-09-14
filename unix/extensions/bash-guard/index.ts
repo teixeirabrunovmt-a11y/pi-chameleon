@@ -1,8 +1,9 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { DynamicBorder, isToolCallEventType } from "@mariozechner/pi-coding-agent";
 import type { SelectItem } from "@mariozechner/pi-tui";
-import { Container, SelectList, Text } from "@mariozechner/pi-tui";
+import { Container, SelectList, Text, matchesKey } from "@mariozechner/pi-tui";
 import { parse as shellParse } from "shell-quote";
+import { spawn } from "node:child_process";
 
 type Severity = "high" | "medium";
 
@@ -36,10 +37,6 @@ function splitOnOps(tokens: Token[], splitOps: string[]): Token[][] {
 	}
 	if (current.length) out.push(current);
 	return out;
-}
-
-function hasFlag(args: string[], flag: string): boolean {
-	return args.includes(flag) || args.some((a) => a.startsWith(flag) && flag.length === 2 && a.startsWith("-"));
 }
 
 function anyArgStartsWith(args: string[], prefix: string): boolean {
@@ -84,13 +81,10 @@ function analyzeSegment(seg: Token[]): Risk | null {
 		reasons.push("find -delete (bulk deletion)");
 	}
 
-	// git operations (prompt on ANY git command)
+	// git operations (prompt only on risky git commands; benign git passes)
 	if (cmd === "git") {
 		const sub = rest[0];
 		const subArgs = rest.slice(1);
-
-		// Always prompt for git commands (user requested). Keep severity medium unless an explicit high-risk pattern is detected.
-		reasons.push(sub ? `git ${sub} (git command)` : "git (git command)");
 
 		if (sub === "rm") {
 			severity = "high";
@@ -120,12 +114,6 @@ function analyzeSegment(seg: Token[]): Risk | null {
 			severity = "high";
 			reasons.push("git gc --prune (can permanently delete objects)");
 		}
-	}
-
-	// truncate
-	if (cmd === "truncate") {
-		severity = severity === "high" ? "high" : "medium";
-		reasons.push("truncate (in-place size change, can erase contents)");
 	}
 
 	// dd of=
@@ -172,11 +160,6 @@ function analyzeSegment(seg: Token[]): Risk | null {
 		severity = "high";
 		reasons.push(`${cmd} (disk/partition management)`);
 	}
-	if (cmd === "lsblk") {
-		// Usually read-only, but still disk-related; prompt as requested.
-		severity = severity === "high" ? "high" : "medium";
-		reasons.push("lsblk (disk listing)");
-	}
 	if (cmd === "cryptsetup") {
 		severity = "high";
 		reasons.push("cryptsetup (disk encryption management)");
@@ -187,48 +170,10 @@ function analyzeSegment(seg: Token[]): Risk | null {
 	}
 	if (cmd === "zpool") {
 		severity = "high";
-		reasons.push("zpool (ZFS pool management)");
+		reasons.push(`${cmd} (ZFS pool management)`);
 	}
 
-	// chmod/chown recursive
-	if (cmd === "chmod" && (rest.includes("-R") || rest.includes("--recursive"))) {
-		severity = severity === "high" ? "high" : "medium";
-		reasons.push("chmod -R (recursive permission changes)");
-	}
-	if (cmd === "chown" && (rest.includes("-R") || rest.includes("--recursive"))) {
-		severity = severity === "high" ? "high" : "medium";
-		reasons.push("chown -R (recursive ownership changes)");
-	}
-
-	// mv/cp overwriting
-	if (cmd === "mv" && (rest.includes("-f") || rest.includes("--force"))) {
-		severity = severity === "high" ? "high" : "medium";
-		reasons.push("mv --force/-f (can overwrite files)");
-	}
-	if (cmd === "cp" && (rest.includes("-f") || rest.includes("--force"))) {
-		severity = severity === "high" ? "high" : "medium";
-		reasons.push("cp --force/-f (can overwrite files)");
-	}
-
-	// sed/perl in-place
-	if (cmd === "sed" && (hasFlag(rest, "-i") || rest.includes("--in-place"))) {
-		severity = severity === "high" ? "high" : "medium";
-		reasons.push("sed -i (in-place file modification)");
-	}
-	if (cmd === "perl" && (rest.includes("-pi") || (rest.includes("-p") && rest.includes("-i")))) {
-		severity = severity === "high" ? "high" : "medium";
-		reasons.push("perl -pi/-i (in-place file modification)");
-	}
-
-	// kill/shutdown/systemctl
-	if (cmd === "kill" || cmd === "pkill" || cmd === "killall") {
-		severity = severity === "high" ? "high" : "medium";
-		reasons.push(`${cmd} (process termination)`);
-		if (rest.includes("-9")) {
-			severity = "high";
-			reasons.push("SIGKILL (-9)");
-		}
-	}
+	// shutdown/systemctl
 	if (cmd === "shutdown" || cmd === "reboot") {
 		severity = "high";
 		reasons.push(`${cmd} (system power operation)`);
@@ -236,12 +181,6 @@ function analyzeSegment(seg: Token[]): Risk | null {
 	if (cmd === "systemctl" && (rest.includes("stop") || rest.includes("disable"))) {
 		severity = severity === "high" ? "high" : "medium";
 		reasons.push("systemctl stop/disable (service disruption)");
-	}
-
-	// Remote execution patterns
-	if ((cmd === "curl" || cmd === "wget") && ops.includes("|")) {
-		severity = "high";
-		reasons.push("curl/wget piped (possible remote code execution)");
 	}
 
 	// Infra deletes
@@ -278,18 +217,8 @@ function analyzeBashCommand(command: string): Risk | null {
 	const reasons: string[] = [];
 	let severity: Severity = "medium";
 
-	// Whole-command operator checks
-	const ops = tokens.filter(isOpToken).map((t) => t.op);
-	if (ops.some((op) => op === ">" || op === ">>" || op === "2>" || op === "2>>")) {
-		reasons.push("shell output redirection (can overwrite files)");
-		severity = severity === "high" ? "high" : "medium";
-	}
-	if (ops.includes("<")) {
-		reasons.push("shell input redirection (questionable)");
-	}
-	if (ops.includes("|")) {
-		reasons.push("pipe operator (chained commands)");
-	}
+	// ponytail: redirecionamento/pipe são rotina de agente de código — sem prompt.
+	// Pipe para interpretador (curl|sh) continua coberto no analyzeSegment.
 
 	// Segment analysis (split on &&, ||, ;)
 	const segments = splitOnOps(tokens, ["&&", "||", ";"]);
@@ -306,24 +235,41 @@ function analyzeBashCommand(command: string): Risk | null {
 	return { severity, reasons: uniq };
 }
 
+// Aviso de desktop quando um diálogo de permissão abre — o usuário pode estar
+// em outro painel do Orca. notify-send crítico + BEL; cooldown anti-spam.
+let lastPermissionAlertAt = 0;
+function alertPermissionNeeded(command: string): void {
+	const now = Date.now();
+	if (now - lastPermissionAlertAt < 10_000) return;
+	lastPermissionAlertAt = now;
+	try {
+		const child = spawn(
+			"notify-send",
+			["-u", "critical", "-a", "pi", "Pi pede permissão", `Run/Abort: ${command.slice(0, 140)}`],
+			{ detached: true, stdio: "ignore" },
+		);
+		child.unref?.();
+	} catch {}
+	try {
+		process.stdout.write("\x07");
+	} catch {}
+}
+
+const COLLAPSE_KEY = "ctrl+]";
+
 async function promptRunOrAbort(ctx: any, command: string, risk: Risk): Promise<"run" | "abort"> {
 	if (!ctx.hasUI) return "abort";
-
-	const reasonsText = risk.reasons.map((r) => `• ${r}`).join("\n");
-	const header = `Command flagged as ${risk.severity.toUpperCase()} risk:`;
-	const body = `${header}\n\n${reasonsText}\n\nCommand:\n${command}`;
+	alertPermissionNeeded(command);
 
 	const items: SelectItem[] = [
-		{ value: "run", label: "Run", description: "Execute the command" },
-		{ value: "abort", label: "Abort", description: "Block this command" },
+		{ value: "run", label: "1. Run", description: "executar agora" },
+		{ value: "abort", label: "2. Abort", description: "bloquear e avisar o modelo" },
 	];
 
 	const choice = await ctx.ui.custom<"run" | "abort">((tui, theme, _kb, done) => {
-		const container = new Container();
-		container.addChild(new DynamicBorder((s: string) => theme.fg("warning", s)));
-		container.addChild(new Text(theme.fg("warning", theme.bold("Potentially destructive bash command")), 1, 0));
-		container.addChild(new Text(body, 1, 0));
-
+		// Gramática do ask-user-question: faixa de título, opções numeradas com
+		// descrição, hints dim no rodapé e colapso para ler o transcript.
+		let collapsed = false;
 		const list = new SelectList(items, items.length, {
 			selectedPrefix: (t) => theme.fg("accent", t),
 			selectedText: (t) => theme.fg("accent", t),
@@ -331,18 +277,46 @@ async function promptRunOrAbort(ctx: any, command: string, risk: Risk): Promise<
 			scrollInfo: (t) => theme.fg("dim", t),
 			noMatch: (t) => theme.fg("warning", t),
 		});
-
 		list.onSelect = (item) => done(item.value as "run" | "abort");
 		list.onCancel = () => done("abort");
-		container.addChild(list);
-
-		container.addChild(new DynamicBorder((s: string) => theme.fg("warning", s)));
+		const buildFull = () => {
+			const container = new Container();
+			container.addChild(new DynamicBorder((s: string) => theme.fg("warning", s)));
+			container.addChild(
+				new Text(theme.fg("warning", theme.bold(`⚠ bash-guard · risco ${risk.severity.toUpperCase()}`)), 0, 0),
+			);
+			container.addChild(new Text(risk.reasons.map((r) => theme.fg("dim", `  • ${r}`)).join("\n"), 0, 0));
+			container.addChild(new Text(theme.fg("accent", command), 1, 0));
+			container.addChild(new DynamicBorder((s: string) => theme.fg("warning", s)));
+			container.addChild(list);
+			container.addChild(new Text(theme.fg("dim", "↑↓ mover · enter escolher · esc aborta · ctrl+] colapsa"), 1, 0));
+			container.addChild(new DynamicBorder((s: string) => theme.fg("warning", s)));
+			return container;
+		};
+		const buildCollapsed = () => {
+			const container = new Container();
+			container.addChild(
+				new Text(
+					theme.fg("warning", theme.bold("⚠ bash-guard aguardando Run/Abort")) +
+						theme.fg("dim", ` — ${COLLAPSE_KEY} expande · esc aborta`),
+					0,
+					0,
+				),
+			);
+			return container;
+		};
 
 		return {
-			render: (w) => container.render(w),
-			invalidate: () => container.invalidate(),
+			render: (w) => (collapsed ? buildCollapsed() : buildFull()).render(w),
+			invalidate: () => {},
 			handleInput: (data) => {
-				list.handleInput(data);
+				if (matchesKey(data, COLLAPSE_KEY)) {
+					collapsed = !collapsed;
+				} else if (collapsed) {
+					if (matchesKey(data, "escape")) done("abort");
+				} else {
+					list.handleInput(data);
+				}
 				tui.requestRender();
 			},
 		};

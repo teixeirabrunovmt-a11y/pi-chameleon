@@ -124,15 +124,21 @@ export default function (pi: ExtensionAPI) {
       };
       c.ui.notify(`handoff salvo em: ${path}`, "info");
 
-      // Abre terminal Orca novo continuando da sessão compactada. Falha silenciosa = só avisa o path.
+      // Abre terminal Orca novo continuando da sessão compactada. Falha = só avisa o path.
       try {
         const sf = c.sessionManager?.getSessionFile?.();
         const orca = process.env.ORCA_CLI_COMMAND ?? "orca";
         if (typeof sf === "string" && sf) {
-          await pi.exec(orca, ["terminal", "create", "--command", `pi --session "${sf}"`]);
-          c.ui.notify("Continuação aberta em novo terminal Orca.", "info");
+          const r = await pi.exec(orca, ["terminal", "create", "--worktree", "active", "--title", "pi handoff", "--command", `pi --session "${sf}"`, "--json"]);
+          if (r.code === 0) {
+            c.ui.notify("Continuação aberta em novo terminal Orca.", "info");
+          } else {
+            c.ui.notify(`Terminal de continuação falhou (code ${r.code}); handoff salvo em: ${path}`, "warning");
+          }
         }
-      } catch {}
+      } catch {
+        c.ui.notify(`Terminal de continuação não abriu; handoff salvo em: ${path}`, "warning");
+      }
     } catch {}
   });
 

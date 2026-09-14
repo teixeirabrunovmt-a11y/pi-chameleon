@@ -46,14 +46,48 @@ Cola de consulta rápida. Comandos com `/` usam Tab para autocompletar.
 
 Handoff-compact dispara sozinho 1x por sessão: 70% do contexto em 2 turnos seguidos → resume dentro da sessão + salva `%TEMP%\pi-handoffs\*.md` + abre terminal Orca novo continuando.
 
+## Workflows (orquestração)
+
+| Comando | Para quê |
+|---|---|
+| `/workflows` | Navegador interativo de runs (`↑↓` seleciona, `enter` abre, `/` filtra; `p` pausa, `x` para, `s` salva) |
+| `/workflows run <prompt>` | Arma o modo workflow para um prompt mesmo com o gatilho desligado |
+| `/workflows status <id>` | Acompanha uma run e imprime o resultado ao terminar |
+| `/workflows pause\|resume\|stop\|rm <id>` | Controla uma run (pausar mantém limites e orçamento acumulado) |
+| `/workflows save <nome>` | Salva o último script como workflow reutilizável |
+| `/workflows-trigger on\|off\|set <palavra>` | Gatilho por palavra no texto (padrão: `workflow`; arma a tool, não força) |
+| `/workflows-progress compact\|detailed\|status\|max <N>` | Nível de detalhe do painel ao vivo |
+| `/workflows-models` | Edita os tiers `small`/`medium`/`big` do roteamento de subagentes |
+| `/ultracode [off]` | Modo exaustivo: workflows automáticos para tudo |
+| `/effort off\|high\|ultra` | Esforço de orquestração permanente da sessão |
+| `/deep-research <pergunta>` | Pesquisa web com fontes checadas e citações |
+| `/adversarial-review <task>` | Revisão cujos achados são desafiados por revisores céticos |
+| `/multi-perspective "<tópico>"` | Ângulos independentes seguidos de síntese |
+| `/code-review [alvo]` | 7 ângulos de review em paralelo + verificação (diff atual, range, arquivo ou PR) |
+| `/codebase-audit <escopo> "<check>"` | Checks paralelos com cross-validation |
+
+Tiers de modelo em `~/.pi/workflows/model-tiers.json` (`small`/`medium`/`big` → seus modelos). Estado das runs em `~/.pi/workflows`. Subagentes não carregam extensions do host. Num script, `agent(prompt, { isolation: "worktree" })` isola a escrita de quem escreve.
+
+## Ask, todos, btw
+
+| Comando | Para quê |
+|---|---|
+| `ask_user_question` (tool) | Questionário com abas quando o modelo precisa decidir em vez de adivinhar (`n` anota, `ctrl+]` colapsa, `esc` abandona) |
+| `/todos` | Lista completa das tarefas agrupada por status (sobrevive a `/reload` e compaction) |
+| `todo` (tool) | Painel ao vivo acima do editor com o plano; `ctrl+shift+t` colapsa |
+| `/btw <pergunta>` | Pergunta lateral ao mesmo modelo, num painel à parte — não entra no transcript (`x` limpa histórico) |
+
 ## Guard, snippets, browser
 
 | Comando | Para quê |
 |---|---|
+| `/bash-guard` | Liga/desliga o modo interativo (off = só bloqueio catastrófico; badge `⚠ BG OFF` no footer) |
 | `/ps-guard` / `/ps-guard on\|off` | Liga/desliga bloqueio de comandos destrutivos PowerShell |
 | `/snippets` ou `Alt+S` | Liga regras por-mensagem (`Espaço` marca, `Tab` prevê, `Enter` aplica). Zera após enviar |
 | `/browser on\|off` | Liga as 8 tools `browser_*` (só quando for debugar frontend) |
 | `/builtin-header` | Volta ao header padrão do Pi |
+
+bash-guard pergunta só no destrutivo — rm, sudo, dd, disco, power, infra deletes, gits arriscados e comandos unparseáveis. Redirecionamento, pipe, `sed -i` e `kill` passam direto. Diálogo abre com notify-send crítico; `ctrl+]` colapsa para ler o transcript.
 
 ## Skills (`/skill:nome`, Tab lista todas)
 
@@ -65,6 +99,15 @@ Handoff-compact dispara sozinho 1x por sessão: 70% do contexto em 2 turnos segu
 | `/skill:youtube-transcript` | Transcript de vídeo EN com legenda |
 | `/skill:goal-loop` | Protocolo do standing goal (o `/goal` implementa) |
 | `/skill:handoff` | Handoff manual em arquivo (alternativa ao automático) |
+
+## Rodapé (custom-footer)
+
+| Comando | Para quê |
+|---|---|
+| `/footer` | Cicla presets: `full → compact → minimal` (persiste em `~/.pi/agent/custom-footer.json`) |
+| `/builtin-footer` | Restaura o rodapé nativo do Pi |
+
+Segmentos individuais (cwd, branch, badges, tokens, tps, custo, contexto, timer, statuses) em `~/.pi/agent/custom-footer.json` → `"segments"` + `/reload`. Contexto mostra também os tokens absolutos (`274k/1.0M`); custo some quando o provider reporta 0.
 
 ## Editor
 
