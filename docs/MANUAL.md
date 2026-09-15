@@ -109,6 +109,18 @@ bash-guard pergunta só no destrutivo — rm, sudo, dd, disco, power, infra dele
 
 Segmentos individuais (cwd, branch, badges, tokens, tps, custo, contexto, timer, statuses) em `~/.pi/agent/custom-footer.json` → `"segments"` + `/reload`. Contexto mostra também os tokens absolutos (`274k/1.0M`); custo some quando o provider reporta 0.
 
+## Segurança (rewind)
+
+Via `pi-workspace-history` (npm). Snapshots before/after por turno de agente.
+
+| Comando | Para quê |
+|---|---|
+| `/undo` | Volta um passo — escolhe restaurar conversa + arquivos, ou só a conversa (arquivos ficam) |
+| `/redo` | Refaz o que o `/undo` desfez |
+| `/checkpoint` | Snapshot manual antes de ação arriscada |
+
+Edições manuais suas entre turnos são capturadas no snapshot seguinte; mudanças não-snapshottadas não são sobrescritas silenciosamente. `Esc Esc` abre o `/tree` — rewind de conversa nativo.
+
 ## Editor
 
 | Atalho | Ação |
