@@ -84,6 +84,16 @@ python3 -m venv ~/.pi/agent/skills/pdf-reader/.venv
 
 Then open pi and run `/reload`.
 
+## npm Pi packages (both OSes)
+
+These live outside the repo (installed into `~/.pi/agent`) and are documented in `docs/MANUAL.md`:
+
+```bash
+pi install npm:@juicesharp/rpiv-ask-user-question  # ask_user_question tool (tabbed questionnaire; replaces the old ask-user-question.ts copy)
+pi install npm:pi-workspace-history                # /undo /redo /checkpoint (workspace snapshots per agent turn)
+pi install npm:@osolmaz/pi-workflows               # /workflows /todos /btw + model tiers in ~/.pi/workflows/model-tiers.json
+```
+
 ## Manual copy (alternative to scripts)
 
 ```bash
@@ -104,7 +114,7 @@ Do not clone over `~/.pi/agent` — copy pieces so you never wipe existing confi
 * `settings.json` sets `defaultTools` per OS, `compaction.reserveTokens: 60000` (~70% trigger on 200k models) with a `modelOverrides` example (`reserveTokens: 300000` ≈ 70% on 1M). Adjust model IDs to your exact `provider/model`.
 * `AGENTS.md` files are intentionally 3 lines. Stack instructions belong in each project's `AGENTS.md`.
 * `externalEditor` (windows) points at `~/.pi/agent/bin/orca-edit-wait.ps1`, so `Ctrl+G` opens the prompt in the Orca editor and returns on save (~3s after stable, cancels with no edit or `Ctrl+C`, falls back to Notepad outside a worktree).
-* `externalEditor` (unix) same behavior with `scripts/orca-edit-wait.sh` (copy to `~/.pi/agent/bin/` and set `externalEditor` to it); falls back to `$VISUAL`/`$EDITOR` instead of Notepad.
+* `externalEditor` (unix) same behavior with `~/.pi/agent/bin/orca-edit-wait.sh` (installed by `install.sh`; set `"externalEditor": "/home/<you>/.pi/agent/bin/orca-edit-wait.sh"` with your absolute path — `~` doesn't expand here); falls back to `$VISUAL`/`$EDITOR` instead of Notepad.
 * `ow-worktree` uses the current orca CLI syntax (`worktree create --name <n> --json` → `terminal create --worktree id:<id>`); `handoff-compact` opens its continuation terminal in the active worktree.
 
 ## Full cheat sheet

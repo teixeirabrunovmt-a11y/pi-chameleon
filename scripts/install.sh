@@ -2,10 +2,12 @@
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AGENT_DIR="${HOME}/.pi/agent"
-mkdir -p "${AGENT_DIR}/extensions" "${AGENT_DIR}/skills"
+mkdir -p "${AGENT_DIR}/extensions" "${AGENT_DIR}/skills" "${AGENT_DIR}/bin"
 cp -r "${REPO_ROOT}/common/extensions/." "${AGENT_DIR}/extensions/"
 cp -r "${REPO_ROOT}/common/skills/." "${AGENT_DIR}/skills/"
 cp -r "${REPO_ROOT}/unix/extensions/." "${AGENT_DIR}/extensions/"
+cp "${REPO_ROOT}/scripts/orca-edit-wait.sh" "${AGENT_DIR}/bin/"
+chmod +x "${AGENT_DIR}/bin/orca-edit-wait.sh"
 if [ -f "${AGENT_DIR}/settings.json" ]; then
   echo "settings.json exists, skipping (compare with unix/settings.json manually)"
 else

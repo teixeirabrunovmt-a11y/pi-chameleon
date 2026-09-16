@@ -67,6 +67,7 @@ Handoff-compact dispara sozinho 1x por sessão: 70% do contexto em 2 turnos segu
 | `/codebase-audit <escopo> "<check>"` | Checks paralelos com cross-validation |
 
 Tiers de modelo em `~/.pi/workflows/model-tiers.json` (`small`/`medium`/`big` → seus modelos). Estado das runs em `~/.pi/workflows`. Subagentes não carregam extensions do host. Num script, `agent(prompt, { isolation: "worktree" })` isola a escrita de quem escreve.
+Instalação: `pi install npm:@osolmaz/pi-workflows` (ver seção npm no README).
 
 ## Ask, todos, btw
 

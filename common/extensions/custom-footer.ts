@@ -13,11 +13,12 @@
  * /builtin-footer restaura o rodapé nativo do Pi.
  */
 import { readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
-const CONFIG_PATH = join(process.env.HOME ?? "", ".pi", "agent", "custom-footer.json");
+const CONFIG_PATH = join(homedir(), ".pi", "agent", "custom-footer.json");
 const THINKING_COLORS = { minimal: 46, low: 82, medium: 118, high: 220, xhigh: 208, max: 196 } as const;
 const AGENT_TIME_ENTRY = "custom-footer:agent-work";
 const SUBAGENT_BACKGROUND_RESULT = "subagent-background-result";
@@ -171,6 +172,10 @@ function applySegments(preset: string, rawSegments: Partial<Segments>): Segments
   return { ...PRESETS[preset]!, ...rawSegments };
 }
 
+type LiveCtx = {
+  ui: { notify: (m: string, t: string) => void; setFooter: (f: undefined) => void };
+};
+
 export default function customFooterExtension(pi: ExtensionAPI): void {
   let activeMilliseconds = 0;
   let activeStartedAt: number | undefined;
@@ -178,6 +183,21 @@ export default function customFooterExtension(pi: ExtensionAPI): void {
   let runtimeTimer: ReturnType<typeof setInterval> | undefined;
   let requestRuntimeRender: (() => void) | undefined;
   let refreshGitStatus: (() => Promise<void>) | undefined;
+  // Estado do rodapé vive no escopo do módulo para não duplicar handlers e
+  // comandos a cada session_start (startup, /reload, /new, /resume, /fork).
+  let preset = "full";
+  let rawSegments: Partial<Segments> = {};
+  let segments: Segments = { ...PRESETS.full };
+  let tps: number | undefined;
+  let assistantStartedAt: number | undefined;
+  let liveCtx: LiveCtx | undefined;
+
+  void loadConfig().then((c) => {
+    preset = c.preset;
+    rawSegments = c.rawSegments;
+    segments = applySegments(c.preset, c.rawSegments);
+  });
+
   const stopRuntimeTimer = () => {
     if (runtimeTimer === undefined) return;
     clearInterval(runtimeTimer);
@@ -228,6 +248,47 @@ export default function customFooterExtension(pi: ExtensionAPI): void {
     activeStartedAt = undefined;
     promptPaused = false;
     refreshGitStatus = undefined;
+    liveCtx = undefined;
+  });
+
+  pi.on("message_start", async (event) => {
+    if (event.message.role === "assistant") assistantStartedAt = performance.now();
+  });
+  pi.on("message_end", async (event) => {
+    if (event.message.role !== "assistant") return;
+    const output = event.message.usage?.output ?? 0;
+    const seconds = assistantStartedAt === undefined ? 0 : (performance.now() - assistantStartedAt) / 1000;
+    assistantStartedAt = undefined;
+    tps = seconds > 0 ? output / seconds : undefined;
+  });
+
+  pi.registerCommand("footer", {
+    description: "Cicla presets do rodapé: full → compact → minimal (persiste)",
+    handler: async (args) => {
+      const arg = (args || "").trim().toLowerCase();
+      const next = arg && (PRESET_ORDER as readonly string[]).includes(arg)
+        ? arg
+        : PRESET_ORDER[(PRESET_ORDER.indexOf(preset as (typeof PRESET_ORDER)[number]) + 1) % PRESET_ORDER.length];
+      preset = next;
+      segments = applySegments(next, rawSegments);
+      try {
+        // Preserva overrides manuais de segmentos do JSON do usuário.
+        await writeFile(CONFIG_PATH, JSON.stringify({ preset: next, ...(Object.keys(rawSegments).length ? { segments: rawSegments } : {}) }, null, 2) + "\n");
+      } catch {}
+      try {
+        liveCtx?.ui.notify(`footer: preset ${next} — segmentos: ${Object.entries(segments).filter(([, v]) => v).map(([k]) => k).join(", ")}`, "info");
+      } catch {}
+    },
+  });
+
+  pi.registerCommand("builtin-footer", {
+    description: "Restaura o rodapé nativo do Pi",
+    handler: async () => {
+      try {
+        liveCtx?.ui.setFooter(undefined);
+        liveCtx?.ui.notify("Rodapé nativo do Pi restaurado.", "info");
+      } catch {}
+    },
   });
 
   pi.on("session_start", async (_event, ctx) => {
@@ -236,6 +297,7 @@ export default function customFooterExtension(pi: ExtensionAPI): void {
     promptPaused = false;
     requestRuntimeRender = undefined;
     refreshGitStatus = undefined;
+    liveCtx = ctx as unknown as LiveCtx;
     // Última entrada válida vence; dado persistido não é confiável.
     activeMilliseconds = 0;
     for (const entry of ctx.sessionManager.getEntries()) {
@@ -243,11 +305,12 @@ export default function customFooterExtension(pi: ExtensionAPI): void {
         activeMilliseconds = entry.data;
       }
     }
-    if (ctx.mode !== "tui") return;
 
-    const { preset: initialPreset, rawSegments } = await loadConfig();
-    let preset = initialPreset;
-    let segments = applySegments(initialPreset, rawSegments);
+    const loaded = await loadConfig();
+    preset = loaded.preset;
+    rawSegments = loaded.rawSegments;
+    segments = applySegments(loaded.preset, loaded.rawSegments);
+    if (ctx.mode !== "tui") return;
 
     const git = await pi.exec(
       "git",
@@ -255,9 +318,8 @@ export default function customFooterExtension(pi: ExtensionAPI): void {
       { cwd: ctx.cwd },
     );
     const [, , gitDir] = git.stdout.trim().split(/\r?\n/);
-    const pwd = ctx.cwd.startsWith(process.env.HOME ?? "\0")
-      ? `~${ctx.cwd.slice((process.env.HOME ?? "").length)}`
-      : ctx.cwd;
+    const home = homedir();
+    const pwd = home && ctx.cwd.startsWith(home) ? `~${ctx.cwd.slice(home.length)}` : ctx.cwd;
     let gitSummary = EMPTY_GIT_SUMMARY;
     let gitRefreshGeneration = 0;
     if (git.code === 0 && gitDir) {
@@ -273,19 +335,6 @@ export default function customFooterExtension(pi: ExtensionAPI): void {
       };
       await refreshGitStatus();
     }
-
-    let tps: number | undefined;
-    let assistantStartedAt: number | undefined;
-    pi.on("message_start", async (event) => {
-      if (event.message.role === "assistant") assistantStartedAt = performance.now();
-    });
-    pi.on("message_end", async (event) => {
-      if (event.message.role !== "assistant") return;
-      const output = event.message.usage?.output ?? 0;
-      const seconds = assistantStartedAt === undefined ? 0 : (performance.now() - assistantStartedAt) / 1000;
-      assistantStartedAt = undefined;
-      tps = seconds > 0 ? output / seconds : undefined;
-    });
 
     // ponytail: keyed on length + last entry (sessions are append-only); revisit if entries ever mutate in place.
     let usageKey: string | undefined;
@@ -408,31 +457,6 @@ export default function customFooterExtension(pi: ExtensionAPI): void {
             .map((line) => truncateToWidth(line, width, ellipsis));
         },
       };
-    });
-
-    pi.registerCommand("footer", {
-      description: "Cicla presets do rodapé: full → compact → minimal (persiste)",
-      handler: async (args) => {
-        const arg = (args || "").trim().toLowerCase();
-        const next = arg && PRESET_ORDER.includes(arg as (typeof PRESET_ORDER)[number])
-          ? arg
-          : PRESET_ORDER[(PRESET_ORDER.indexOf(preset) + 1) % PRESET_ORDER.length];
-        preset = next;
-        segments = applySegments(next, rawSegments);
-        try {
-          // Preserva overrides manuais de segmentos do JSON do usuário.
-          await writeFile(CONFIG_PATH, JSON.stringify({ preset: next, ...(Object.keys(rawSegments).length ? { segments: rawSegments } : {}) }, null, 2) + "\n");
-        } catch {}
-        ctx.ui.notify(`footer: preset ${next} — segmentos: ${Object.entries(segments).filter(([, v]) => v).map(([k]) => k).join(", ")}`, "info");
-      },
-    });
-
-    pi.registerCommand("builtin-footer", {
-      description: "Restaura o rodapé nativo do Pi",
-      handler: async () => {
-        ctx.ui.setFooter(undefined);
-        ctx.ui.notify("Rodapé nativo do Pi restaurado.", "info");
-      },
     });
   });
 }
